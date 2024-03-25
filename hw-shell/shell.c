@@ -32,6 +32,7 @@ int cmd_exit(struct tokens* tokens);
 int cmd_help(struct tokens* tokens);
 int cmd_pwd(struct tokens* tokens);
 int cmd_cd(struct tokens* tokens);
+void execute(struct tokens* tokens);
 /* Built-in command functions take token array (see parse.h) and return int */
 typedef int cmd_fun_t(struct tokens* tokens);
 
@@ -86,6 +87,43 @@ int lookup(char cmd[]) {
   return -1;
 }
 
+
+void execute(struct tokens* tokens) {
+  char *path = tokens_get_token(tokens, 0);
+  if(path == NULL) {
+    //fprintf(stdout, "The path is NULL\n");
+    return;
+  }
+
+  int status;
+  int pid = fork();
+  if(pid < 0){
+    fprintf(stdout, "fork error\n");
+    exit(-1);
+  }
+
+  if(pid == 0) {
+  int argc = tokens_get_length(tokens);
+  char* argv[argc + 1]; //最后一个元素必须是NULL
+  for(int i = 0; i < argc; i++) {
+    char* args = tokens_get_token(tokens, i);
+    argv[i] = malloc(strlen(args));
+    memcpy(argv[i], args, strlen(args));
+  }
+  argv[argc] = NULL;
+  if(execv(path, argv) == -1) {
+    fprintf(stdout, "There is an error when exectue\n");
+    free(argv);
+    exit(-1);
+  }
+    free(argv);
+  } else {
+    waitpid(pid, &status, 0);
+  }
+  return;
+}
+
+
 /* Intialization procedures for this shell */
 void init_shell() {
   /* Our shell is connected to standard input. */
@@ -133,7 +171,8 @@ int main(unused int argc, unused char* argv[]) {
       cmd_table[fundex].fun(tokens);
     } else {
       /* REPLACE this to run commands as programs. */
-      fprintf(stdout, "This shell doesn't know how to run programs.\n");
+      /*第二项任务修改这里执行命令*/
+      execute(tokens);
     }
 
     if (shell_is_interactive)
