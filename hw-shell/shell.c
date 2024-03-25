@@ -86,15 +86,61 @@ int lookup(char cmd[]) {
       return i;
   return -1;
 }
+//一个一个试
+char* get_full_path(char* short_name) {
+  FILE *file = fopen(short_name, "r");
+  if(file != NULL) {
+    fclose(file);
+    return short_name;
+  }
 
+  char *char_env = getenv("PATH");
+  if(char_env == NULL) {
+    fprintf(stdout, "Environmetn Path Error\n");
+    return NULL;
+  }
+
+  char *full_path = (char*)malloc(4096);
+  if(full_path == NULL) {
+    fprintf(stdout, "Malloc Error\n");
+    return NULL;
+  }
+  char *saveptr;
+  char* token = strtok_r(char_env, ":", &saveptr);
+
+  while (1) {
+    if(token == NULL) {
+      break;
+    }
+    int len = strlen(token);
+    memcpy(full_path, token, len + 1);
+    full_path[len] = '/';
+    full_path[len + 1] = '\0';
+    strcat(full_path, short_name);
+    //fprintf(stdout, "%s\n", full_path);
+
+    file = fopen(full_path, "r");
+    if(file != NULL) {
+      fclose(file);
+      return full_path;
+    }
+
+    token = strtok_r(NULL, ":", &saveptr);
+  }
+  free(full_path);
+  return NULL;
+}
 
 void execute(struct tokens* tokens) {
-  char *path = tokens_get_token(tokens, 0);
-  if(path == NULL) {
+  char *short_name = tokens_get_token(tokens, 0);
+  if(short_name == NULL) {
     //fprintf(stdout, "The path is NULL\n");
     return;
   }
-
+  char *path = get_full_path(short_name);
+  if(path == NULL) {
+    return;
+  }
   int status;
   int pid = fork();
   if(pid < 0){
