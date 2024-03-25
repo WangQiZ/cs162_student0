@@ -86,40 +86,127 @@ int lookup(char cmd[]) {
       return i;
   return -1;
 }
-
-
-void execute(struct tokens* tokens) {
-  char *path = tokens_get_token(tokens, 0);
-  if(path == NULL) {
-    //fprintf(stdout, "The path is NULL\n");
-    return;
+//一个一个试
+char* get_full_path(char* short_name) {
+  FILE *file = fopen(short_name, "r");
+  if(file != NULL) {
+    fclose(file);
+    return short_name;
   }
 
+  char *char_env = getenv("PATH");
+  if(char_env == NULL) {
+    fprintf(stdout, "Environmetn Path Error\n");
+    return NULL;
+  }
+
+  char *full_path = (char*)malloc(4096);
+  if(full_path == NULL) {
+    fprintf(stdout, "Malloc Error\n");
+    return NULL;
+  }
+  char *saveptr;
+  char* token = strtok_r(char_env, ":", &saveptr);
+
+  while (1) {
+    if(token == NULL) {
+      break;
+    }
+    int len = strlen(token);
+    memcpy(full_path, token, len + 1);
+    full_path[len] = '/';
+    full_path[len + 1] = '\0';
+    strcat(full_path, short_name);
+    //fprintf(stdout, "%s\n", full_path);
+
+    file = fopen(full_path, "r");
+    if(file != NULL) {
+      fclose(file);
+      return full_path;
+    }
+
+    token = strtok_r(NULL, ":", &saveptr);
+  }
+  free(full_path);
+  return NULL;
+}
+
+int child_exec(char* full_path, char** argv, int input_file, int output_file){
   int status;
   int pid = fork();
   if(pid < 0){
     fprintf(stdout, "fork error\n");
-    exit(-1);
+    return -1;
   }
 
   if(pid == 0) {
-  int argc = tokens_get_length(tokens);
-  char* argv[argc + 1]; //最后一个元素必须是NULL
-  for(int i = 0; i < argc; i++) {
+    if(input_file != 0) { //不是stdin
+      dup2(input_file, STDIN_FILENO);
+    }
+
+    if(output_file != 1) { //不是stdout
+      dup2(output_file, STDOUT_FILENO);
+    }
+    if(execv(full_path, argv) == -1) {  
+      fprintf(stdout, "There is an error when executing\n");
+      exit(-1);
+    }
+    exit(0);
+  } else {
+    wait(&status);
+    return status;
+  }
+}
+
+
+void execute(struct tokens* tokens) {
+  char *short_name = tokens_get_token(tokens, 0);
+  if(short_name == NULL) {
+    //fprintf(stdout, "The path is NULL\n");
+    return;
+  }
+  char *path = get_full_path(short_name);
+  if(path == NULL) {
+    return;
+  }
+
+  int input_file;
+  int output_file;
+
+  int len = tokens_get_length(tokens);
+  int argc = 0;
+  char* argv[len + 1]; //最后一个元素必须是NULL
+  for(int i = 0; i < len; i++) {
     char* args = tokens_get_token(tokens, i);
-    argv[i] = malloc(strlen(args));
-    memcpy(argv[i], args, strlen(args));
+    if(strcmp(args, "<") == 0) {
+      ++i;
+      args = tokens_get_token(tokens, i);
+      input_file = open(args, O_RDONLY);
+    } else if(strcmp(args, ">") == 0) {
+      ++i;
+      args = tokens_get_token(tokens, i);
+      output_file = creat(args,S_IRUSR | S_IRWXU);
+    } else {
+        argv[i] = malloc(strlen(args));
+        memcpy(argv[i], args, strlen(args));
+        argc++;
+    }
+
   }
   argv[argc] = NULL;
-  if(execv(path, argv) == -1) {
-    fprintf(stdout, "There is an error when exectue\n");
-    free(argv);
-    exit(-1);
+
+  // int i = 0;
+  // while(argv[i] != NULL) {
+  //   fprintf(stdout, "%s\n", argv[i++]);
+  // }
+
+  child_exec(path, argv, input_file, output_file);
+  //free(argv);
+  for(int i = 0; i < argc; i++) {
+    free(argv[i]);
   }
-    free(argv);
-  } else {
-    waitpid(pid, &status, 0);
-  }
+  close(input_file);
+  close(output_file);
   return;
 }
 
