@@ -32,7 +32,7 @@ int cmd_exit(struct tokens* tokens);
 int cmd_help(struct tokens* tokens);
 int cmd_pwd(struct tokens* tokens);
 int cmd_cd(struct tokens* tokens);
-void execute(struct tokens* tokens);
+void execute(struct tokens* tokens, char*);
 /* Built-in command functions take token array (see parse.h) and return int */
 typedef int cmd_fun_t(struct tokens* tokens);
 
@@ -87,19 +87,13 @@ int lookup(char cmd[]) {
   return -1;
 }
 //一个一个试
-char* get_full_path(char* short_name) {
+char* get_full_path(char* short_name, char* char_env) {
   FILE *file = fopen(short_name, "r");
   if(file != NULL) {
     fclose(file);
     return short_name;
   }
-
-  char *char_env = getenv("PATH");
-  if(char_env == NULL) {
-    fprintf(stdout, "Environmetn Path Error\n");
-    return NULL;
-  }
-
+  //fprintf(stdout, "%s\n", char_env);
   char *full_path = (char*)malloc(4096);
   if(full_path == NULL) {
     fprintf(stdout, "Malloc Error\n");
@@ -117,7 +111,6 @@ char* get_full_path(char* short_name) {
     full_path[len] = '/';
     full_path[len + 1] = '\0';
     strcat(full_path, short_name);
-    //fprintf(stdout, "%s\n", full_path);
 
     file = fopen(full_path, "r");
     if(file != NULL) {
@@ -148,9 +141,11 @@ int child_exec(char* full_path, char** argv, int input_file, int output_file){
       dup2(output_file, STDOUT_FILENO);
     }
     if(execv(full_path, argv) == -1) {  
+      free(full_path);
       fprintf(stdout, "There is an error when executing\n");
       exit(-1);
     }
+    free(full_path);
     exit(0);
   } else {
     wait(&status);
@@ -159,19 +154,21 @@ int child_exec(char* full_path, char** argv, int input_file, int output_file){
 }
 
 
-void execute(struct tokens* tokens) {
+void execute(struct tokens* tokens, char* char_env) {
   char *short_name = tokens_get_token(tokens, 0);
   if(short_name == NULL) {
-    //fprintf(stdout, "The path is NULL\n");
+    fprintf(stdout, "The path is NULL\n");
     return;
   }
-  char *path = get_full_path(short_name);
+  char *path = get_full_path(short_name, char_env);
   if(path == NULL) {
+    fprintf(stdout, "Could not get full path\n");
     return;
   }
 
-  int input_file;
-  int output_file;
+  int input_file = 0;
+  int output_file = 1;
+  int pipes[2];//0->read 1 ->write
 
   int len = tokens_get_length(tokens);
   int argc = 0;
@@ -186,9 +183,22 @@ void execute(struct tokens* tokens) {
       ++i;
       args = tokens_get_token(tokens, i);
       output_file = creat(args,S_IRUSR | S_IRWXU);
-    } else {
-        argv[i] = malloc(strlen(args));
-        memcpy(argv[i], args, strlen(args));
+    } else if(strcmp(args, "|") == 0){ // pa | pb | pc 
+      argv[argc] = NULL; //pa pb or pc
+      pipe(pipes);
+      output_file = pipes[1];
+      child_exec(path, argv, input_file, output_file);
+      close(output_file);
+      output_file = 1;
+      argc = 0;
+      if(input_file != STDIN_FILENO) {
+        close(input_file);
+      }
+      input_file = pipes[0];
+    }else {
+        // argv[i] = malloc(strlen(args));
+        // memcpy(argv[i], args, strlen(args));
+        argv[argc] = args;
         argc++;
     }
 
@@ -199,14 +209,12 @@ void execute(struct tokens* tokens) {
   // while(argv[i] != NULL) {
   //   fprintf(stdout, "%s\n", argv[i++]);
   // }
-
   child_exec(path, argv, input_file, output_file);
   //free(argv);
-  for(int i = 0; i < argc; i++) {
-    free(argv[i]);
-  }
-  close(input_file);
-  close(output_file);
+  // for(int i = 0; i < argc; i++) {
+  //   free(argv[i]);
+  // }
+
   return;
 }
 
@@ -242,7 +250,7 @@ int main(unused int argc, unused char* argv[]) {
 
   static char line[4096];
   int line_num = 0;
-
+  char *char_env = getenv("PATH");
   /* Please only print shell prompts when standard input is not a tty */
   if (shell_is_interactive)
     fprintf(stdout, "%d: ", line_num);
@@ -259,16 +267,19 @@ int main(unused int argc, unused char* argv[]) {
     } else {
       /* REPLACE this to run commands as programs. */
       /*第二项任务修改这里执行命令*/
-      execute(tokens);
+      char *c_env = malloc(strlen(char_env) + 1);
+      memcpy(c_env, char_env, strlen(char_env)+1);
+      execute(tokens, c_env);
+      free(c_env);
     }
 
     if (shell_is_interactive)
       /* Please only print shell prompts when standard input is not a tty */
       fprintf(stdout, "%d: ", ++line_num);
-
     /* Clean up memory */
     tokens_destroy(tokens);
   }
 
+  free(char_env);
   return 0;
 }
